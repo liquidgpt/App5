@@ -6,6 +6,34 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f1b2d">
+<meta name="apple-mobile-web-app-title" content="AD5 Prep">
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' rx='40' fill='%230f1b2d'/><text x='90' y='125' text-anchor='middle' font-size='100' font-family='serif' fill='%23c9a84c'>5</text></svg>">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230f1b2d'/><text x='16' y='23' text-anchor='middle' font-size='20' font-family='serif' fill='%23c9a84c'>5</text></svg>">
+<script>
+// PWA Manifest (inline as data URL for single-file app)
+const pwaManifest = {
+  name: "AD5 Prep — EPSO Trainer",
+  short_name: "AD5 Prep",
+  description: "Préparation au concours EPSO AD5",
+  start_url: ".",
+  display: "standalone",
+  background_color: "#0f1b2d",
+  theme_color: "#0f1b2d",
+  orientation: "any",
+  icons: [{
+    src: "data:image/svg+xml," + encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='100' fill='#0f1b2d'/><text x='256' y='360' text-anchor='middle' font-size='300' font-family='serif' fill='#c9a84c'>5</text></svg>"),
+    sizes: "512x512",
+    type: "image/svg+xml",
+    purpose: "any maskable"
+  }]
+};
+const manifestBlob = new Blob([JSON.stringify(pwaManifest)], {type: 'application/json'});
+const manifestUrl = URL.createObjectURL(manifestBlob);
+const manifestLink = document.createElement('link');
+manifestLink.rel = 'manifest';
+manifestLink.href = manifestUrl;
+document.head.appendChild(manifestLink);
+</script>
 <title>AD5 Prep — EPSO Trainer</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -1824,6 +1852,8 @@ function renderDashboard() {
       </div>
     </div>
 
+    ${renderSrsDueSection('dashboard')}
+
     <div style="margin-bottom:12px; font-family:'Playfair Display',serif; font-size:18px; color:var(--gold-light);">Choisir une matière</div>
     <div class="subjects-grid">
       ${Object.entries(SUBJECTS).map(([key, subj]) => {
@@ -3335,6 +3365,176 @@ async function autoGenerateEuIfNeeded() {
   if (state.apiKey && profile && existing.length < 10) {
     await generateTextQuestions('eu', 3, true);
   }
+}
+
+// ===== SPACED REPETITION SYSTEM (SM-2) =====
+
+function getSrsData() {
+  try { return JSON.parse(localStorage.getItem('ad5prep_srs') || '{}'); }
+  catch(e) { return {}; }
+}
+
+function saveSrsData(data) {
+  localStorage.setItem('ad5prep_srs', JSON.stringify(data));
+}
+
+// SM-2 algorithm: update review schedule after answering a question
+// quality: 0-5 scale (0=total blank, 3=correct with difficulty, 5=perfect recall)
+function srsUpdateCard(qId, quality) {
+  const data = getSrsData();
+  let card = data[qId] || { interval: 0, repetitions: 0, easeFactor: 2.5, nextReview: null };
+
+  if (quality >= 3) {
+    // Correct answer
+    if (card.repetitions === 0) {
+      card.interval = 1; // 1 day
+    } else if (card.repetitions === 1) {
+      card.interval = 3; // 3 days
+    } else {
+      card.interval = Math.round(card.interval * card.easeFactor);
+    }
+    card.repetitions++;
+  } else {
+    // Wrong answer: reset
+    card.repetitions = 0;
+    card.interval = 0; // Due immediately (next session)
+  }
+
+  // Update ease factor (SM-2 formula)
+  card.easeFactor = Math.max(1.3, card.easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)));
+
+  // Set next review date
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const next = new Date(now);
+  next.setDate(next.getDate() + card.interval);
+  card.nextReview = next.toISOString().split('T')[0]; // YYYY-MM-DD
+
+  card.lastReview = new Date().toISOString().split('T')[0];
+  card.qId = qId;
+
+  data[qId] = card;
+  saveSrsData(data);
+  return card;
+}
+
+// Convert answer correctness to SM-2 quality score
+function srsQualityFromAnswer(isCorrect, wasHesitant) {
+  if (!isCorrect) return 1; // wrong
+  if (wasHesitant) return 3; // correct but slow/uncertain
+  return 4; // solid correct
+}
+
+// Get all questions due for review today (or overdue)
+function srsDueQuestions() {
+  const data = getSrsData();
+  const today = new Date().toISOString().split('T')[0];
+  let fullBank = [];
+  try { fullBank = typeof absGetFullBank === 'function' ? absGetFullBank() : []; } catch(e) { fullBank = []; }
+  const due = [];
+
+  for (const [qId, card] of Object.entries(data)) {
+    if (!card.nextReview || card.nextReview <= today) {
+      const q = fullBank.find(q => String(q.id) === String(qId));
+      if (q) due.push({ ...q, srsCard: card });
+    }
+  }
+
+  // Also add questions from full bank that have NEVER been reviewed (new cards)
+  // but limit to 5 new cards per session to avoid overwhelm
+  let newCount = 0;
+  for (const q of fullBank) {
+    if (!data[String(q.id)] && newCount < 5) {
+      due.push({ ...q, srsCard: null });
+      newCount++;
+    }
+  }
+
+  return due;
+}
+
+// Get summary stats for SRS
+function srsStats() {
+  const data = getSrsData();
+  const today = new Date().toISOString().split('T')[0];
+  let dueCount = 0, reviewedToday = 0, totalCards = 0;
+
+  for (const [qId, card] of Object.entries(data)) {
+    totalCards++;
+    if (!card.nextReview || card.nextReview <= today) dueCount++;
+    if (card.lastReview === today) reviewedToday++;
+  }
+
+  // Count unregistered cards in the bank
+  let fullBank = [];
+  try { fullBank = typeof absGetFullBank === 'function' ? absGetFullBank() : []; } catch(e) { fullBank = []; }
+  const unseenCount = fullBank.filter(q => !data[String(q.id)]).length;
+  dueCount += Math.min(unseenCount, 5); // max 5 new per session
+
+  return { dueCount, reviewedToday, totalCards, unseenCount };
+}
+
+// Render the "Due Today" section for dashboard or abstract home
+function renderSrsDueSection(context) {
+  const stats = srsStats();
+
+  if (stats.dueCount === 0 && stats.totalCards === 0) return '';
+
+  const isDashboard = context === 'dashboard';
+
+  if (stats.dueCount === 0) {
+    return `
+      <div style="background:rgba(76,175,125,0.08);border:1px solid rgba(76,175,125,0.3);border-radius:var(--radius);padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:12px;">
+        <div style="font-size:24px;">✅</div>
+        <div>
+          <div style="font-size:14px;color:var(--success);font-weight:600;">Révisions du jour terminées !</div>
+          <div style="font-size:12px;color:var(--text-dim);margin-top:2px;">${stats.reviewedToday} question(s) révisée(s) aujourd'hui · Prochaine révision demain</div>
+        </div>
+      </div>`;
+  }
+
+  return `
+    <div style="background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.3);border-radius:var(--radius);padding:16px 20px;margin-bottom:20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="font-size:24px;">📅</div>
+          <div>
+            <div style="font-size:14px;color:var(--gold-light);font-weight:600;">${stats.dueCount} question(s) à réviser</div>
+            <div style="font-size:12px;color:var(--text-dim);margin-top:2px;">
+              ${stats.reviewedToday > 0 ? stats.reviewedToday + ' déjà révisée(s) aujourd\'hui · ' : ''}Répétition espacée active
+            </div>
+          </div>
+        </div>
+        ${isDashboard
+          ? `<button class="btn-primary" style="font-size:12px;padding:9px 18px;" onclick="navigate('abstract')">→ Réviser maintenant</button>`
+          : `<button class="btn-primary" style="font-size:12px;padding:9px 18px;" onclick="absStartSrsReview()">📅 Révision du jour</button>`
+        }
+      </div>
+    </div>`;
+}
+
+// Start an SRS review session (only due questions)
+function absStartSrsReview() {
+  const due = srsDueQuestions();
+  if (due.length === 0) {
+    showToast('✅ Aucune question à réviser — revenez demain !');
+    return;
+  }
+
+  absClearTimer();
+  absState.mode = 'srs';
+  absState.view = 'quiz';
+  absState.currentQ = 0;
+  absState.score = 0;
+  absState.answers = [];
+  absState.selected = null;
+  absState.revealed = false;
+
+  // Shuffle due questions, cap at 15
+  const shuffled = due.sort(() => Math.random() - 0.5).slice(0, 15);
+  absState.questions = shuffled;
+
+  absRender();
 }
 
 // ===== MISTAKE PATTERN ANALYSIS =====
@@ -5042,6 +5242,7 @@ function renderAbsHome() {
           </div>
         </div>
       ` : ''}
+      ${renderSrsDueSection('abstract')}
       <div class="mode-card" onclick="absStartTheory()">
         <div class="mode-card-icon">📖</div>
         <div class="mode-card-title">Théorie & Méthode</div>
@@ -5250,7 +5451,10 @@ function renderAbsQuiz() {
       <div id="absScoreInline" style="font-family:'DM Mono',monospace;font-size:13px;color:var(--text-dim);padding:6px 14px;background:var(--card-bg);border:1px solid var(--card-border);border-radius:20px;">Score: ${absState.score}/${absState.currentQ}</div>
       <div id="absTimerInline" style="font-family:'DM Mono',monospace;font-size:18px;color:var(--gold);background:rgba(201,168,76,0.1);border:1px solid rgba(201,168,76,0.3);padding:6px 16px;border-radius:20px;">10:00</div>
     </div>` : `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <div id="absScoreInline" style="font-family:'DM Mono',monospace;font-size:13px;color:var(--text-dim);padding:6px 14px;background:var(--card-bg);border:1px solid var(--card-border);border-radius:20px;">Score: ${absState.score}/${absState.currentQ}</div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div id="absScoreInline" style="font-family:'DM Mono',monospace;font-size:13px;color:var(--text-dim);padding:6px 14px;background:var(--card-bg);border:1px solid var(--card-border);border-radius:20px;">Score: ${absState.score}/${absState.currentQ}</div>
+        ${absState.mode === 'srs' ? `<div style="font-size:11px;color:var(--gold);padding:5px 12px;background:rgba(201,168,76,0.1);border:1px solid rgba(201,168,76,0.2);border-radius:20px;">📅 Révision espacée</div>` : ''}
+      </div>
       <button onclick="absShowResults()" style="background:transparent;border:1px solid var(--card-border);color:var(--text-dim);padding:6px 14px;border-radius:20px;font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--gold)';this.style.color='var(--text)'" onmouseout="this.style.borderColor='var(--card-border)';this.style.color='var(--text-dim)'">Terminer la session →</button>
     </div>`;
   return `${simBar}
@@ -5400,6 +5604,9 @@ function absRevealAnswer() {
   absState.history.push({ q: q.id, correct: isCorrect });
   recordAbsPerf(q, isCorrect); // adaptive tracking
   recordAbsAnswer(q, selected, isCorrect); // mistake pattern log
+  // Spaced repetition update
+  const srsQuality = srsQualityFromAnswer(isCorrect, false);
+  srsUpdateCard(String(q.id), srsQuality);
 
   const sd = document.getElementById('absScoreInline'); if(sd) sd.textContent = `Score: ${absState.score}/${absState.currentQ + 1}`;
 

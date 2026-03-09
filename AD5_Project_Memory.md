@@ -620,3 +620,52 @@ Display:
 3. PWA manifest (~15 min)
 4. Cross-device sync (requires backend)
 5. Mistake analysis for Verbal/Numerical/EU (currently abstract-only)
+
+---
+
+## Session 6 — Spaced Repetition + PWA Manifest
+
+### Spaced Repetition System (SM-2 algorithm)
+
+Storage: `ad5prep_srs` — object keyed by question ID, each with `{interval, repetitions, easeFactor, nextReview, lastReview, qId}`.
+
+**Core SM-2 algorithm** (`srsUpdateCard(qId, quality)`):
+- quality 0-5 scale: 1=wrong, 3=correct with difficulty, 4=solid correct
+- Correct: interval grows (1d → 3d → interval×easeFactor)
+- Wrong: reset to interval 0, due immediately next session
+- Ease factor adjusts per SM-2 formula, floor at 1.3
+
+**Functions**:
+- `getSrsData()` / `saveSrsData()` — localStorage persistence
+- `srsUpdateCard(qId, quality)` — updates card schedule after each answer
+- `srsQualityFromAnswer(isCorrect, wasHesitant)` — converts answer to SM-2 quality
+- `srsDueQuestions()` — returns all due questions + up to 5 new unseen cards
+- `srsStats()` — returns `{dueCount, reviewedToday, totalCards, unseenCount}`
+- `renderSrsDueSection(context)` — renders gold "N questions à réviser" banner (dashboard or abstract)
+- `absStartSrsReview()` — starts a quiz with only due questions (mode='srs')
+
+**Integration points**:
+- `absRevealAnswer()` calls `srsUpdateCard()` after every answer
+- Dashboard shows SRS due section between stats grid and subject selector
+- Abstract home shows SRS due section inside the mode grid area
+- Quiz header shows "📅 Révision espacée" badge when in SRS mode
+- SRS review sessions show "Terminer la session" button (like practice)
+
+### PWA Manifest (inline)
+
+Single-file PWA approach — manifest generated as Blob URL at page load:
+- `name`: "AD5 Prep — EPSO Trainer"
+- `short_name`: "AD5 Prep"
+- `display`: "standalone"
+- `background_color` / `theme_color`: "#0f1b2d"
+- SVG icon (gold "5" on navy background) as data URL, 512x512
+- Apple touch icon and favicon also added as inline SVG data URLs
+- `apple-mobile-web-app-title` meta tag added
+
+To install on phone: open file in Safari/Chrome → Share → "Add to Home Screen"
+
+### Updated TODO
+1. Daily exam readiness score
+2. Cross-device sync (GitHub storage, when features stable)
+3. Mistake analysis for Verbal/Numerical/EU (currently abstract-only)
+4. Spaced repetition for Numerical/EU generated questions (currently abstract-only)
