@@ -669,3 +669,71 @@ To install on phone: open file in Safari/Chrome → Share → "Add to Home Scree
 2. Cross-device sync (GitHub storage, when features stable)
 3. Mistake analysis for Verbal/Numerical/EU (currently abstract-only)
 4. Spaced repetition for Numerical/EU generated questions (currently abstract-only)
+
+---
+
+## Session 6 — Knowledge Base Integration (March 2026)
+
+### What was done
+Extracted comprehensive knowledge bases from "The Ultimate EU Test Book" and embedded them directly into the app.
+
+### Source material processed
+- **Abstract Reasoning** (118 pages): Full theory + 30 fully worked questions + 100 test questions with rules
+- **Numerical Reasoning** (144 pages): Full theory + warm-up exercises + 120 mixed test questions with solutions
+- **Verbal Reasoning** (86 pages): Full theory + 150 questions with True/False/Cannot-Say analysis for every option
+
+### Knowledge bases created (3 JSON constants embedded in HTML)
+
+**ABSTRACT_KB (55 KB)**
+- EPSO format specifications
+- 10 pattern categories with subtypes (rotation, translation, shading, counting, conditional, alternating, lifecycle, cross-figure, reflection, overlay)
+- 10 traps & pitfalls with examples
+- 12 solving shortcuts
+- All 130 questions: 30 worked (difficulty, key insight, trap types, pattern types) + 100 test (rules, rule count, pattern types)
+- Key stat: average 3.2 rules/question
+
+**NUMERICAL_KB (10 KB)**
+- 8 math topics (fractions, ratios, percentages, per capita, order of magnitude, speed/time/distance, equations, estimation)
+- 9 common traps (% vs percentage points, reverse percentage, unit mismatch, etc.)
+- 10 question types with methods
+- 7-step solving strategy + 6 estimation techniques
+
+**VERBAL_KB (23 KB)**
+- 3 statement types (True, False, Cannot Say) with detailed analysis
+- 10 linguistic traps (familiar topics, assumptions, near-equivalents, determiners, causality vs chronology, etc.)
+- All 150 answers with classification of every option
+- Key stat: 68.2% of wrong answers are "Cannot Say"
+
+### Architecture changes
+
+**3 new global constants**: `ABSTRACT_KB`, `NUMERICAL_KB`, `VERBAL_KB` — available throughout the app
+
+**3 new functions**: `buildAbstractKBContext()`, `buildNumericalKBContext()`, `buildVerbalKBContext()` — generate focused AI context strings from the KBs
+
+**3 enhanced system prompts**: Abstract, Numerical, Verbal SUBJECTS now reference book knowledge, real EPSO patterns, critical traps
+
+**3 upgraded style injection functions**: `absGetStyleInjection()`, `numericalGetStyleInjection()`, `verbalGetStyleInjection()` now ALWAYS inject KB context + user style profile (previously: only user profile, empty if no profile existed)
+
+### Design decisions
+
+- **KBs embedded as JS constants** (not localStorage) — permanent, works offline, no upload needed
+- **KB context injected into every AI call** for those 3 modules — even without user-uploaded style profiles
+- **User style profiles preserved** — KB context is the base layer, user uploads add on top
+- **EU Knowledge & Digital modules untouched** — different approach planned (factual Q&A bank from PDFs, not reasoning skills)
+
+### Note on EU Knowledge / Digital Literacy (discussed, not built)
+User confirmed these modules need a different architecture: not about "getting smarter" at reasoning, but about ingesting concrete knowledge and generating questions from specific PDFs. Will be addressed in a future session when PDFs are available.
+
+### File stats
+- Original: 298 KB, 6566 lines
+- Updated: 393 KB, 6644 lines (+92 KB from embedded KBs)
+
+### Remaining TODO (updated)
+1. SVG question generation from KB patterns (use ABSTRACT_KB pattern categories to generate better SVG questions)
+2. Spaced repetition scheduler
+3. Daily exam readiness score
+4. PWA manifest
+5. Cross-device sync
+6. Mistake analysis for Verbal/Numerical (currently abstract-only)
+7. EU Knowledge module: factual Q&A bank from PDFs
+8. Digital Literacy module: same approach as EU Knowledge
