@@ -4325,7 +4325,34 @@ async function absGenerateQuestions(count = 3, silent = false) {
   const existingTitles = existing.slice(0,20).map(q => q.title).join(' · ');
 
   // ── ATTEMPT 1: SVG questions ──
+  // Build KB-powered pattern guidance for the AI
+  const kbPatterns = ABSTRACT_KB.patternCategories.map(c => c.name + ': ' + c.subTypes.slice(0,3).join(', ')).join('\n- ');
+  const kbTraps = ABSTRACT_KB.trapsAndPitfalls.slice(0,5).map(t => t.trap).join(', ');
+  // Pick random real question rules as examples for calibration
+  const realExamples = ABSTRACT_KB.questions.test
+    .sort(() => Math.random() - 0.5).slice(0,3)
+    .map(q => 'Q' + q.q + ' (' + q.answer + ', ' + (q.ruleCount||q.rules.length) + ' règles): ' + q.rules.join('; '))
+    .join('\n');
+  // Pick a random difficulty distribution
+  const difficulties = ['easy','medium','medium','hard','hard'];
+  const targetDifficulties = Array.from({length: count}, (_,i) => difficulties[Math.floor(Math.random()*difficulties.length)]);
+
   const svgPrompt = `Tu es un expert en conception de tests EPSO. Génère exactement ${count} questions de raisonnement abstrait EPSO au format JSON SVG.
+
+IMPORTANT : Les vrais tests EPSO utilisent en moyenne 3.2 règles par question. Chaque question doit combiner 2-4 règles parmi les patterns RÉELS ci-dessous. Les mauvaises réponses (distracteurs) ne sont PAS aléatoires — elles suivent les règles partiellement puis dévient intentionnellement.
+
+PATTERNS RÉELS EPSO (combine-les) :
+- ${kbPatterns}
+
+EXEMPLES DE RÈGLES DE VRAIES QUESTIONS EPSO (calibre tes questions à ce niveau) :
+${realExamples}
+
+PIÈGES RÉELS à intégrer dans les distracteurs : ${kbTraps}
+
+Difficultés demandées pour ces ${count} questions : ${targetDifficulties.join(', ')}
+- easy = 2 règles simples (rotation fixe + changement de couleur)
+- medium = 2-3 règles combinées (translation + shading conditionnel)  
+- hard = 3-4 règles interagissantes (cross-figure + alternating + lifecycle)
 
 VALEURS AUTORISÉES — tu ne peux utiliser QUE ces valeurs :
 - type de forme : circle, square, triangle, diamond, pentagon, hexagon, star, cross, arrow, semicircle
@@ -4457,15 +4484,26 @@ RÈGLES CRITIQUES :
 
   // ── Text fallback prompt ──
   const textFallbackPrompt = `Génère exactement ${count} questions de raisonnement abstrait EPSO en format TEXTUEL avec symboles Unicode.
+
+IMPORTANT : Chaque question doit combiner 2-4 règles comme dans les vrais tests EPSO (moyenne 3.2 règles/question).
+Les distracteurs (mauvaises réponses) doivent suivre PARTIELLEMENT les règles puis dévier — PAS être aléatoires.
+
+Patterns à utiliser (combine-les) : rotation, translation/mouvement, changement de remplissage, comptage, règles conditionnelles, alternance pair/impair, cycle de vie d'éléments, dépendances inter-figures.
+
+Exemples de règles réelles EPSO :
+${realExamples}
+
+Utilise des symboles Unicode riches : ▲▼◆◇○●□■★☆↑↓←→↗↘⬡⬢△▽◯⊕⊖⊗♠♣♥♦ et leurs combinaisons/tailles.
 ${profileContext}
 
 Réponds UNIQUEMENT avec un tableau JSON :
 [{
   "type":"series","renderType":"text","difficulty":"medium",
-  "title":"Titre","instruction":"Instruction",
-  "display":"▲ → ▲▲ → ▲▲▲ → ?",
-  "options":["▲▲▲▲","▲▲","■■■","●●●"],"answer":0,
-  "explanation":"<strong>Règle :</strong> explication..."
+  "title":"Titre descriptif de la règle","instruction":"Quelle figure complète la série ?",
+  "display":"▲○ → ▲▲●○ → ▲▲▲○●● → ?",
+  "options":["▲▲▲▲●●●○","▲▲▲○●●","▲▲▲▲●●○","▲▲●●●○○"],
+  "answer":0,
+  "explanation":"<strong>Règle 1 :</strong> Le nombre de ▲ augmente de 1 à chaque étape.<br><strong>Règle 2 :</strong> Le ○ reste unique et en fin. Les ● remplissent les espaces précédents."
 }]`;
 
   let finalResults = null;
@@ -4599,9 +4637,8 @@ function absReportQuestionIssue(qId) {
 // Auto-generate silently when bank is small and profile exists
 async function absAutoGenerateIfNeeded() {
   const stats = absGetBankStats();
-  const profile = getAbsStyleProfile();
-  // Only auto-generate if: profile exists, API key set, bank < 18 questions
-  if (state.apiKey && profile && stats.total < 18) {
+  // Auto-generate if: API key set AND bank < 18 questions (KB always provides context now, no profile needed)
+  if (state.apiKey && stats.total < 18) {
     await absGenerateQuestions(3, true); // silent=true
   }
 }
@@ -5526,7 +5563,10 @@ function renderAbsQuiz() {
   const simBar = absState.mode === 'simulation' ? `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
       <div id="absScoreInline" style="font-family:'DM Mono',monospace;font-size:13px;color:var(--text-dim);padding:6px 14px;background:var(--card-bg);border:1px solid var(--card-border);border-radius:20px;">Score: ${absState.score}/${absState.currentQ}</div>
-      <div id="absTimerInline" style="font-family:'DM Mono',monospace;font-size:18px;color:var(--gold);background:rgba(201,168,76,0.1);border:1px solid rgba(201,168,76,0.3);padding:6px 16px;border-radius:20px;">10:00</div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div id="absTimerInline" style="font-family:'DM Mono',monospace;font-size:18px;color:var(--gold);background:rgba(201,168,76,0.1);border:1px solid rgba(201,168,76,0.3);padding:6px 16px;border-radius:20px;">10:00</div>
+        <button onclick="if(confirm('Terminer la simulation ? Votre score actuel sera enregistré.'))absShowResults()" style="background:transparent;border:1px solid var(--card-border);color:var(--text-dim);padding:6px 12px;border-radius:20px;font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--danger)';this.style.color='var(--danger)'" onmouseout="this.style.borderColor='var(--card-border)';this.style.color='var(--text-dim)'">✕ Arrêter</button>
+      </div>
     </div>` : `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
       <div style="display:flex;align-items:center;gap:10px;">
         <div id="absScoreInline" style="font-family:'DM Mono',monospace;font-size:13px;color:var(--text-dim);padding:6px 14px;background:var(--card-bg);border:1px solid var(--card-border);border-radius:20px;">Score: ${absState.score}/${absState.currentQ}</div>
