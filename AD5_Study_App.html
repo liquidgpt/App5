@@ -5565,7 +5565,7 @@ function renderAbsQuiz() {
       <div id="absScoreInline" style="font-family:'DM Mono',monospace;font-size:13px;color:var(--text-dim);padding:6px 14px;background:var(--card-bg);border:1px solid var(--card-border);border-radius:20px;">Score: ${absState.score}/${absState.currentQ}</div>
       <div style="display:flex;align-items:center;gap:10px;">
         <div id="absTimerInline" style="font-family:'DM Mono',monospace;font-size:18px;color:var(--gold);background:rgba(201,168,76,0.1);border:1px solid rgba(201,168,76,0.3);padding:6px 16px;border-radius:20px;">10:00</div>
-        <button onclick="if(confirm('Terminer la simulation ? Votre score actuel sera enregistré.'))absShowResults()" style="background:transparent;border:1px solid var(--card-border);color:var(--text-dim);padding:6px 12px;border-radius:20px;font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--danger)';this.style.color='var(--danger)'" onmouseout="this.style.borderColor='var(--card-border)';this.style.color='var(--text-dim)'">✕ Arrêter</button>
+        <button onclick="absStopSimulation()" style="background:transparent;border:1px solid var(--card-border);color:var(--text-dim);padding:6px 12px;border-radius:20px;font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--danger)';this.style.color='var(--danger)'" onmouseout="this.style.borderColor='var(--card-border)';this.style.color='var(--text-dim)'">✕ Arrêter</button>
       </div>
     </div>` : `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
       <div style="display:flex;align-items:center;gap:10px;">
@@ -5743,10 +5743,8 @@ function absRevealAnswer() {
     </div>
   `;
 
-  // Show next button
-  if (absState.mode === 'practice') {
-    document.getElementById('btn-area').style.display = 'flex';
-  }
+  // Show next button (all modes including simulation)
+  document.getElementById('btn-area').style.display = 'flex';
 }
 
 // ===== CONTEST ANSWER CHAT =====
@@ -6178,6 +6176,12 @@ function absUpdateTimerDisplay() {
   if (absState.timeLeft <= 60) {
     el.style.color = 'var(--danger)';
     el.style.borderColor = 'var(--danger)';
+  }
+}
+
+function absStopSimulation() {
+  if (confirm('Terminer la simulation ? Votre score actuel sera enregistré.')) {
+    absShowResults();
   }
 }
 
